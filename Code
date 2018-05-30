@@ -78,12 +78,12 @@ cust.pred.30.fx[indx]=0
 
 # Forecasting with Multi-Seasonal Time Series with Fixed Effect Models
 
-cust_rsdfcst.fx=read.csv('C:/Users/yinpuli-user/Dropbox/Final Project/Data/cust.rsdfcst.csv',header = T) # under dropbox
-sale_rsdfcst.fx=read.csv('C:/Users/yinpuli-user/Dropbox/Final Project/Data/sale.rsdfcst.csv',header = T)
+cust_rsdfcst.fx=read.csv('cust.rsdfcst.csv',header = T)
+sale_rsdfcst.fx=read.csv('sale.rsdfcst.csv',header = T)
 
 cust_forpred.fx=read.csv('cust_forpred.csv',header = T)
 
-sale_forpred.fx=read.csv('C:/Users/yinpuli-user/Dropbox/Final Project/Data/sale_forpred.csv',header = T)
+sale_forpred.fx=read.csv('sale_forpred.csv',header = T)
 x=matrix(c(1,2,3,4,5,6,7,8,9),3,3)
 sb=function(x){
         return(c(min(x),max(x)))
