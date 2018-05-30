@@ -1,0 +1,252 @@
+library(plm)
+library(vars)
+#read training
+training=read.csv('training.csv',header = T)
+training=training[,-c(1,2,3)]
+#read testing
+testing=read.csv('testing.csv',header = T)
+testing=testing[,-c(1,2,3)]
+
+# Fixed Effect Model
+fit.sale=plm(Sales~Open+Promo+as.factor(StateHoliday)+SchoolHoliday,data=training,
+             index=c("store", "Date"), model="within")
+summary(fit.sale)
+fit.cust=plm(Customers~Open+Promo+as.factor(StateHoliday)+SchoolHoliday,data=training,
+             index=c("store", "Date"), model="within")
+summary(fit.cust)
+
+# F test between Pooled-OLS and Fixed Effects Models
+ols.cust=plm(Customers~Open+Promo+as.factor(StateHoliday)+SchoolHoliday,data=training,
+             index=c("store", "Date"), model="pooling")
+ols.sale=plm(Sales~Open+Promo+as.factor(StateHoliday)+SchoolHoliday,data=training,
+             index=c("store", "Date"), model="pooling")
+pFtest(fit.sale, ols.sale)
+pFtest(fit.cust, ols.cust)
+
+# Hausman test between Fixed Effect Models and Random Effect Models
+rdm.cust=plm(Customers~Open+Promo+as.factor(StateHoliday)+SchoolHoliday,data=training,
+             index=c("store", "Date"), model="random")
+rdm.sale=plm(Sales~Open+Promo+as.factor(StateHoliday)+SchoolHoliday,data=training,
+             index=c("store", "Date"), model="random")
+summary(rdm.sale)
+phtest(fit.sale, rdm.sale)
+phtest(fit.cust, rdm.cust)
+
+# Forecasting with Fixed Effect Models
+coef.sale.fx=as.vector(fit.sale$coefficients)[c(1,2,6)]
+coef.cust.fx=as.vector(fit.cust$coefficients)[c(1,2,6)]
+fixefct.sale=as.vector(fixef(fit.sale))
+fixefct.cust=as.vector(fixef(fit.cust))
+
+dataforpred=as.matrix(testing[,c(6,7,9)])
+sale.plm.pred.fx=dataforpred%*%coef.sale.fx
+cust.plm.pred.fx=dataforpred%*%coef.cust.fx
+
+fixed=function(a){
+        x=matrix(rep(0,28954),934,31)
+        for(i in 1:31){
+                x[,i]=a
+        }
+        return(c(t(x)))
+}
+fix.sale=fixed(fixefct.sale)
+fix.cust=fixed(fixefct.cust)
+
+cus=read.csv('cus_res_matrix.csv',header=T)
+sales=read.csv('sale_res_matrix.csv',header = T)
+colnames(cus)=colnames(sales)
+sales_cus.fx=rbind(sales,cus)[,2:935]
+varfunc=function(x,p=30){
+        s1=cbind(x[1:911],x[912:1822])
+        fit1=VAR(s1,p,type='both')
+        fit1.pr=predict(fit1,n.ahead=31)
+        return(c(fit1.pr$fcst$y1[,1],fit1.pr$fcst$y2[,1]))
+}
+sales_residuals_lag30.fx=apply(sales_cus.fx,2,varfunc)
+var30.sale.fx=sales_residuals_lag30.fx[1:31,]
+var30.cust.fx=sales_residuals_lag30.fx[32:62,]
+#overall prediction
+sale.pred.30.fx=sale.plm.pred.fx+fix.sale+c(as.matrix(var30.sale.fx))
+cust.pred.30.fx=cust.plm.pred.fx+fix.cust+c(as.matrix(var30.cust.fx))
+indx=which(testing$Open==0)
+sale.pred.30.fx[indx]=0
+cust.pred.30.fx[indx]=0
+
+#test RMSPE VAR(30)
+(RMSPE.sale.fx=sqrt(mean(((testing$Sales[-indx]-sale.pred.30.fx[-indx])/testing$Sales[-indx])^2))) 
+(RMSPE.cust.fx=sqrt(mean(((testing$Customers[-indx]-cust.pred.30.fx[-indx])/testing$Customers[-indx])^2))) 
+
+# Forecasting with Multi-Seasonal Time Series with Fixed Effect Models
+
+cust_rsdfcst.fx=read.csv('C:/Users/yinpuli-user/Dropbox/Final Project/Data/cust.rsdfcst.csv',header = T) # under dropbox
+sale_rsdfcst.fx=read.csv('C:/Users/yinpuli-user/Dropbox/Final Project/Data/sale.rsdfcst.csv',header = T)
+
+cust_forpred.fx=read.csv('cust_forpred.csv',header = T)
+
+sale_forpred.fx=read.csv('C:/Users/yinpuli-user/Dropbox/Final Project/Data/sale_forpred.csv',header = T)
+x=matrix(c(1,2,3,4,5,6,7,8,9),3,3)
+sb=function(x){
+        return(c(min(x),max(x)))
+}
+apply(x,2,sb)
+
+library(forecast)
+mspred=function(x,p){
+        y <- msts(x, seasonal.periods=c(p,365.25))
+        fit <- tbats(y)
+        fc <- forecast(fit, h=31)
+        return(fc$mean)
+}
+
+cstrsd<-read.csv('cus_res_matrix.csv')
+cstrsd=cstrsd[,-1]
+cust.rsdfcst=apply(cstrsd,2,mspred,p=7)
+
+#rsd.cust=c(cust.rsdfcst)
+
+slrsd=read.csv('sale_res_matrix.csv')
+slrsd=slrsd[,-1]
+sale.rsdfcst=apply(slrsd,2,mspred,p=7)
+
+#rsd.sale=c(sale.rsdfcst)
+
+y=msts(slrsd,seasonal.periods=c(7,365))
+fit1=tbats(y[,1])
+fit1$likelihood
+tbt.sale=fit1$fitted.values
+
+fit2=tbats(y[,2])
+fit2$likelihood
+tbt.cust=fit2$fitted.values
+
+plot(fit1, main="Decomposition for St")
+plot(fit2, main="Decomposition for Ct")
+
+plot(y[31:90,1],main="Fitted plot for 60 days", type='b',
+     ylab="Sales: True(black) vs Fitted(red)")
+lines(tbt.sale[31:90],type='b',col="dark red")
+
+plot(y[31:90,2],main="Fitted plot for 60 days", type='b',
+     ylab="Customers: True(black) vs Fitted(red)")
+lines(tbt.cust[31:90],type='b',col="dark red")
+
+
+plot(y[339:389,1],main="Fitted plot arround Christmas", type='b',
+     ylab="Sales: True(black) vs Fitted(red)")
+lines(tbt.sale[340:390],type='b',col="dark red")
+
+plot(y[339:389,2],main="Fitted plot arround Christmas", type='b',
+     ylab="Customers: True(black) vs Fitted(red)")
+lines(tbt.cust[340:390],type='b',col="dark red")
+
+
+x=matrix(c(1,2,3,4,5,6,7,8,9),3,3)
+sb=function(x){
+        return(c(min(x),max(x)))
+}
+apply(x,2,sb)
+
+library(forecast)
+mspred=function(x,p){
+        y <- msts(x, seasonal.periods=c(p,365.25))
+        fit <- tbats(y)
+        fc <- forecast(fit, h=31)
+        return(fc$mean)
+}
+
+cstrsd<-read.csv('cus_res_matrix.csv')
+cstrsd=cstrsd[,-1]
+cust.rsdfcst=apply(cstrsd,2,mspred,p=7)
+
+#rsd.cust=c(cust.rsdfcst)
+
+slrsd=read.csv('sale_res_matrix.csv')
+slrsd=slrsd[,-1]
+sale.rsdfcst=apply(slrsd,2,mspred,p=7)
+
+#rsd.sale=c(sale.rsdfcst)
+
+y=msts(slrsd,seasonal.periods=c(7,365))
+fit1=tbats(y[,1])
+fit1$likelihood
+tbt.sale=fit1$fitted.values
+
+fit2=tbats(y[,2])
+fit2$likelihood
+tbt.cust=fit2$fitted.values
+
+plot(fit1, main="Decomposition for St")
+plot(fit2, main="Decomposition for Ct")
+
+plot(y[31:90,1],main="Fitted plot for 60 days", type='b',
+     ylab="Sales: True(black) vs Fitted(red)")
+lines(tbt.sale[31:90],type='b',col="dark red")
+
+plot(y[31:90,2],main="Fitted plot for 60 days", type='b',
+     ylab="Customers: True(black) vs Fitted(red)")
+lines(tbt.cust[31:90],type='b',col="dark red")
+
+
+plot(y[339:389,1],main="Fitted plot arround Christmas", type='b',
+     ylab="Sales: True(black) vs Fitted(red)")
+lines(tbt.sale[340:390],type='b',col="dark red")
+
+plot(y[339:389,2],main="Fitted plot arround Christmas", type='b',
+     ylab="Customers: True(black) vs Fitted(red)")
+lines(tbt.cust[340:390],type='b',col="dark red")
+
+tbs.sale.fx=as.matrix(sale_forpred.fx[,-1]+c(as.matrix(sale_rsdfcst.fx[,-1])))
+tbs.cust.fx=as.matrix(cust_forpred.fx[,-1]+c(as.matrix(cust_rsdfcst.fx[,-1])))
+
+tbs.sale.fx[indx]=0
+tbs.cust.fx[indx]=0
+(MES.tbats.sale.fx=sqrt(mean(((testing$Sales[-indx]-tbs.sale.fx[-indx])/testing$Sales[-indx])^2)) )# 0.3524443
+(MSE.tbats.cust.fx=sqrt(mean(((testing$Customers[-indx]-tbs.cust.fx[-indx])/testing$Customers[-indx])^2))) # 0.1323695
+
+# Clustering
+
+wide=read.csv('wide.csv',header = T)
+seq=seq(3,8915,by=8)
+MAT=wide[,seq]
+v=apply(MAT,2,function(x) sum(is.na(x)))
+
+vv=as.vector(v)
+i1=which(vv==0)
+
+library(dtw)
+observedLabels=i1
+
+# Fixed Effect Models
+
+# compute DTW distances
+distMatrix.sale.fx=dist(t(var28.sale.fx),method = 'DTW')
+distMatrix.cust.fx=dist(t(var28.cust.fx),method = 'DTW')
+
+# hierarchical clustering
+hc.sale.fx=hclust(distMatrix.sale.fx,method = 'average')
+hc.cust.fx=hclust(distMatrix.cust.fx,method = 'average')
+
+plot(hc.sale.fx,labels=observedLabels,main='')
+plot(hc.cust.fx,labels = observedLabels,main='')
+
+# cut the trees to get 2 clusters 
+rect.hclust(hc.sale.fx,k=2)
+rect.hclust(hc.cust.fx,k=2)
+memb.sale.fx=cutree(hc.sale.fx, k=2)
+t.sale.fx=addmargins(table(observedLabels, memb.sale.fx))
+
+memb.cust.fx=cutree(hc.cust.fx, k=2)
+t.cust.fx=addmargins(table(observedLabels, memb.cust.fx))
+
+# randomly select one store
+set.seed(4262017)
+sample(pred$store,1) # 535
+pred_store=subset(pred,pred$store==535)
+
+plot(pred_store$Sales,type='b',ylim=c(min(pred_store$Sale_overall.pred.fx,pred_store$Sales,pred_store$Sale_overall.pred.rd)
+                                      ,max(pred_store$Sales,pred_store$Sale_overall.pred.fx,pred_store$Sale_overall.pred.rd)),
+     main='Prediction with Fixed Effect Models and Random Effect Models')
+lines(pred_store$Sale_overall.pred.fx,type='b',col='red')
+lines(pred_store$Sale_overall.pred.rd,type='b',col='blue')
+legend('bottomright',c('Fixed','Random'),col=c('red','blue'),lty = c(1,1))
+
